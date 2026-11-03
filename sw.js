@@ -1,5 +1,5 @@
 /* Pós-Venda S&P · funcionamento sem rede */
-const V='pv-2026.11.01-local1';
+const V='pv-2026.11.03-local3';
 const SHELL=['./','./index.html','./config.js','./manifest.webmanifest','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
 const CDN=['cdn.jsdelivr.net','fonts.googleapis.com','fonts.gstatic.com'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()))});

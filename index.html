@@ -10,7 +10,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="pv-version" content="2026.11.01-local1">
+<meta name="pv-version" content="2026.11.03-local3">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 <script src="config.js"></script>
 </head><body>
@@ -542,16 +542,28 @@ async function exportSvc(s){const fotos={};
     for(const f of all){const d=await fotoData(f);if(d)fotos[f.id]=d}}
   const data={tipo:'pos-venda-sp-servico',versao:1,exportadoEm:new Date().toISOString(),servico:clean(s),fotos};
   setOut('svc',new Blob([JSON.stringify(data)],{type:'application/json'}),`${nomeFich(s.numero)} - ${nomeFich(s.cliente?.nome||'Cliente')}.posvenda.json`,'Ficheiro com o serviço completo, incluindo fotografias e assinaturas. Abre-se noutro telemóvel em Serviços › Importar ficheiro.')}
+async function exportTudo(){const fotos={};
+  for(const sv of S.servicos)for(const e of sv.equipamentos||[]){const all=[...(e.fotos||[]),...Object.values(e.ficha||{}).flatMap(d=>(d&&d.fotos)||[]),...(e.etiqueta?[e.etiqueta]:[])];
+    for(const f of all){if(fotos[f.id])continue;const d=await fotoData(f);if(d)fotos[f.id]=d}}
+  const data={tipo:'pos-venda-sp-tudo',versao:1,exportadoEm:new Date().toISOString(),servicos:clean(S.servicos),catalogo:clean(S.catalogo),fotos};
+  const stamp=new Date().toISOString().slice(0,16).replace('T',' ').replace(':','h');
+  setOut('tudo',new Blob([JSON.stringify(data)],{type:'application/json'}),`Pos-Venda S&P ${stamp}.posvenda.json`,`${S.servicos.length} serviço(s) e ${S.catalogo.length} equipamento(s) do catálogo, com fotografias e assinaturas. Abra este ficheiro no outro dispositivo em Serviços › Importar ficheiro.`)}
 function exportCat(){const data={tipo:'pos-venda-sp-catalogo',versao:1,exportadoEm:new Date().toISOString(),itens:clean(S.catalogo)};
   setOut('cat',new Blob([JSON.stringify(data)],{type:'application/json'}),`Catalogo pecas S&P ${hoje()}.posvenda.json`,`${S.catalogo.length} equipamento(s). Nos outros telemóveis, abra em Equipamentos e peças › Importar.`)}
 async function importar(file){let j;try{j=JSON.parse(await file.text())}catch(e){toast('O ficheiro não é um ficheiro do Pós-Venda.');return}
   if(j.tipo==='pos-venda-sp-catalogo'){let n=0;for(const c of j.itens||[]){if(!c.id)continue;const {id,...d}=c;await S.db.doc('catalogo/'+id).set(d);n++}toast(n+' equipamento(s) do catálogo importado(s).');setTimeout(()=>toast(''),4000);return}
-  if(j.tipo==='pos-venda-sp-servico'&&j.servico&&j.servico.id){const sv=j.servico;const ex=S.servicos.find(x=>x.id===sv.id);
-    if(ex&&(ex.atualizadoEm||'')>(sv.atualizadoEm||'')){toast('Este telemóvel já tem uma versão mais recente de '+(sv.numero||'este serviço')+'. Nada foi alterado.');setTimeout(()=>toast(''),5000);return}
-    const fix=f=>{if(f&&j.fotos&&j.fotos[f.id]){f.src='db'}return f};
+  const fix=f=>{if(f&&j.fotos&&j.fotos[f.id]){f.src='db'}return f};
+  const upSvc=async sv=>{const ex=S.servicos.find(x=>x.id===sv.id);if(ex&&(ex.atualizadoEm||'')>(sv.atualizadoEm||''))return false;
     for(const e of sv.equipamentos||[]){(e.fotos||[]).forEach(fix);Object.values(e.ficha||{}).forEach(d=>(d&&d.fotos||[]).forEach(fix));if(e.etiqueta)fix(e.etiqueta)}
-    for(const [id,d] of Object.entries(j.fotos||{})){await S.db.doc('fotos/'+id).set({d,sid:sv.id});S.fotoCache[id]=d}
-    const {id,...data}=sv;await S.db.doc('servicos/'+id).set(data);toast('Serviço '+(sv.numero||'')+' importado.');setTimeout(()=>toast(''),4000);return}
+    const ids=new Set();for(const e of sv.equipamentos||[]){[...(e.fotos||[]),...Object.values(e.ficha||{}).flatMap(d=>(d&&d.fotos)||[]),...(e.etiqueta?[e.etiqueta]:[])].forEach(f=>f&&ids.add(f.id))}
+    for(const id of ids){const d=j.fotos&&j.fotos[id];if(d){await S.db.doc('fotos/'+id).set({d,sid:sv.id});S.fotoCache[id]=d}}
+    const {id,...data}=sv;await S.db.doc('servicos/'+id).set(data);return true};
+  if(j.tipo==='pos-venda-sp-tudo'){let n=0,k=0,c=0;for(const sv of j.servicos||[]){if(!sv.id)continue;if(await upSvc(sv))n++;else k++}
+    for(const it of j.catalogo||[]){if(!it.id)continue;const {id,...d}=it;await S.db.doc('catalogo/'+id).set(d);c++}
+    toast(`Importado: ${n} serviço(s) e ${c} equipamento(s) do catálogo.${k?` ${k} serviço(s) mantido(s), porque neste dispositivo estão mais recentes.`:''}`);setTimeout(()=>toast(''),6000);return}
+  if(j.tipo==='pos-venda-sp-servico'&&j.servico&&j.servico.id){const sv=j.servico;
+    if(!await upSvc(sv)){toast('Este dispositivo já tem uma versão mais recente de '+(sv.numero||'este serviço')+'. Nada foi alterado.');setTimeout(()=>toast(''),5000);return}
+    toast('Serviço '+(sv.numero||'')+' importado.');setTimeout(()=>toast(''),4000);return}
   toast('O ficheiro não é um ficheiro do Pós-Venda.')}
 /* ================== ESTADO ================== */
 const S={db:null,user:null,assets:null,sample:null,downloads:null,ready:false,noDb:false,
@@ -644,7 +656,7 @@ function vHero(){const h=new Date().getHours();const saud=h<13?'Bom dia':h<20?'B
   const eqs=S.servicos.filter(s=>(s.criadoEm||'')>=lim).reduce((n,s)=>n+(s.equipamentos||[]).length,0);
   const nome=(S.meName||'').split(' ')[0];
   return `<div class="in"><div><div class="eyebrow">${saud}${nome?', '+esc(nome):''}${window.PV_MODE==='cloud'&&window.PV_LOGOUT?` · <button type="button" class="sm ghost" style="padding:0;min-height:0;font-size:12px;letter-spacing:1.4px" data-act="sair">SAIR</button>`:''}</div><h1>Pós-Venda</h1></div>
-  ${window.PV_MODE==='local'?'<div class="muted" style="font-size:13.5px">Os serviços ficam guardados neste telemóvel. No fim, partilhe o relatório e exporte o serviço para o escritório.</div>':''}
+  ${window.PV_MODE==='local'?'<div class="muted" style="font-size:13.5px">Os serviços ficam guardados neste dispositivo. No fim, partilhe o relatório e exporte o serviço para o escritório.</div>':''}
   <div class="stats"><div class="stat"><b>${abertos}</b><span>Em curso</span></div><div class="stat"><b>${conc}</b><span>Concluídos em 30 dias</span></div><div class="stat"><b>${eqs}</b><span>Equipamentos em 30 dias</span></div></div>
   ${S.pick?`<div class="pickf"><div class="lbl">${S.pick==='COM'?'Novo comissionamento':'Nova assistência técnica'} · escolha a ficha</div><div class="actions">${Object.entries(FICHAS).map(([k,o])=>`<button class="tile" data-act="novo-ficha" data-v="${k}"><span class="ic ${k==='nashira'?'com':'eq'}">${IC.com}</span><span><b>${esc(o.nome)}</b><small>${esc(o.desc)}</small></span></button>`).join('')}</div><div><button class="sm ghost" data-act="novo-cancel">Cancelar</button></div></div>`:`<div class="actions"><button class="tile" data-act="novo" data-v="AT"><span class="ic at">${IC.at}</span><span><b>Assistência técnica</b><small>Avaria, diagnóstico, troca de peças</small></span></button>
   <button class="tile" data-act="novo" data-v="COM"><span class="ic com">${IC.com}</span><span><b>Comissionamento</b><small>Arranque e verificação da instalação</small></span></button></div>`}</div>`}
@@ -658,7 +670,10 @@ function vLista(){
   return `<div class="search">${IC.search}<input id="q" placeholder="Procurar cliente, obra, n.º ou modelo" value="${esc(S.q)}" data-act-input="q" aria-label="Procurar"></div>
   <div class="tabs under">${f('abertos','Em curso')}${f('concluidos','Concluídos')}${f('todos','Todos')}</div>
   ${arr.length?`<div class="list">${arr.map(cardSvc).join('')}</div>`:`<div class="empty"><b>${S.servicos.length?'Nenhum serviço neste filtro':'Ainda não há serviços registados'}</b><span>Abra uma assistência técnica ou um comissionamento no topo da página.</span></div>`}
-  <div class="row" style="justify-content:center"><span class="filebtn"><button type="button" class="sm ghost">Importar ficheiro de serviço</button><input type="file" accept=".json,application/json" data-file="importar" aria-label="Importar ficheiro de serviço"></span></div>`;
+  <div class="panel sect"><div class="sect-h"><h3>Passar para outro dispositivo</h3></div>
+   <div class="muted" style="font-size:13.5px">Cada dispositivo guarda os seus dados. Para continuar no computador, exporte aqui e importe lá o mesmo ficheiro. Para voltar ao telemóvel, faça o inverso. Fica sempre a versão mais recente de cada serviço.</div>
+   <div class="row"><button class="sm" data-act="exp-tudo" ${S.servicos.length||S.catalogo.length?'':'disabled'} ${S.busy.expT?'disabled':''}>${S.busy.expT?'<span class="spin"></span> A preparar…':'Exportar tudo'}</button><span class="filebtn"><button type="button" class="sm">Importar ficheiro</button><input type="file" accept=".json,application/json" data-file="importar" aria-label="Importar ficheiro"></span></div>
+   ${outPanel('tudo')}</div>`;
 }
 function cardSvc(s){const eq=s.equipamentos||[];const com=s.tipo==='COM';
   return card({act:'abrir',v:s.id,ic:com?'com':'at',
@@ -776,7 +791,7 @@ function vFicha(s,e){
     <div class="row">${x.states?seg('e:ficha.'+k+'.e',x.states):''}${x.val?`<input style="flex:1;min-width:120px" data-b="e:ficha.${k}.v" id="f_${e.uid}_${k}" value="${esc(f[k]?.v||'')}" placeholder="${esc(x.val)}" ${x.num?'inputmode="decimal"':''} ${x.sug?`list="${lid}"`:''}>${x.sug?`<datalist id="${lid}">${x.sug.map(o=>`<option value="${esc(o)}"></option>`).join('')}</datalist>`:''}`:''}</div>${ptExtra(e,k,x.c)}</div></div>`};
   const sec=sc=>{const keys=sc.items.map(x=>x.k);const vis=keys.filter(k=>!oc.has(k)).length;
     return `<div class="panel sect"><div class="sect-h"><span class="code">${sc.code}</span><h3>${esc(sc.title)}</h3><span class="muted" style="margin-left:auto;font-size:12.5px">${vis}/${keys.length}</span></div>${sc.items.map(row).join('')}${vis?'':'<div class="muted" style="font-size:13px">Todos os pontos desta secção estão ocultos.</div>'}${sc.foot?`<div class="muted" style="font-size:12px">${esc(sc.foot)}</div>`:''}${hiddenBar(e,keys)}</div>`};
-  const intro=`<div class="muted" style="font-size:13px"><b style="color:var(--ink)">${esc(FICHAS[fichaDe(s)].nome)}.</b> ${s.tipo==='AT'?'Em assistência técnica a ficha é opcional. ':''}Use "Ocultar" nos pontos que não se aplicam. Comentários e fotografias de cada ponto seguem no fim do relatório.</div>`;
+  const intro=`<div class="muted" style="font-size:13px"><b style="color:var(--ink)">${esc(FICHAS[fichaDe(s)].nome)}.</b> ${s.tipo==='AT'?'Em assistência técnica a ficha é opcional. ':''}Use "Ocultar" nos pontos que não se aplicam. Comentários e fotografias de cada ponto aparecem no relatório logo a seguir a esse ponto.</div>`;
   const caud=(titulo,cod,lista)=>{const rows=[...lista.map((n,i)=>[cod+'.'+(i+1),n,false]),...Array.from({length:N_OUTROS},(_,j)=>[cod+'.'+(lista.length+j+1),'',true])];
     const vis=rows.filter(([c])=>!oc.has(keyOf(c)));
     return `<h3 style="font-size:15px;margin-top:6px">${titulo}</h3><div class="tbl-wrap"><table class="caud"><thead><tr><th></th><th>Compartimento</th><th>Proj.</th><th>Real</th><th></th><th></th></tr></thead><tbody>${vis.map(([c,n,o])=>{const k=keyOf(c);const d=f[k]||{};const dv=desvio(d.p,d.r);const has=d.c!==undefined||(d.fotos||[]).length||S.open[e.uid+k+'_row'];
@@ -887,6 +902,7 @@ document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-ac
   case 'pdf':S.out=null;gerarPDF();break;
   case 'exp-svc':{S.busy.exp=true;S.out=null;render();try{await exportSvc(s)}catch(er){toast('Não foi possível exportar: '+(er.message||er))}S.busy.exp=false;render();break}
   case 'exp-cat':exportCat();render();break;
+  case 'exp-tudo':{S.busy.expT=true;S.out=null;render();try{await exportTudo()}catch(er){toast('Não foi possível exportar: '+(er.message||er))}S.busy.expT=false;render();break}
   case 'out-share':{const o=S.out;if(!o)break;navigator.share({files:[o.file],title:o.nome}).catch(er=>{if(er&&er.name!=='AbortError')toast('Não foi possível partilhar. Use Descarregar.')});break}
   case 'out-down':{const o=S.out;if(!o)break;if(!STANDALONE()&&S.downloads){S.downloads.save({filename:o.nome,data:o.file}).catch(()=>{});break}const u=URL.createObjectURL(o.file);const a=document.createElement('a');a.href=u;a.download=o.nome;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);break}
   case 'out-close':S.out=null;render();break;
@@ -911,7 +927,7 @@ document.addEventListener('input',ev=>{const el=ev.target;
   if(p==='s'&&path==='ficha')render();
 });
 document.addEventListener('change',async ev=>{const el=ev.target;let kind=el.dataset.file;if(!kind||!el.files?.length)return;const files=[...el.files];el.value='';
-  if(kind==='importar'){for(const f of files)await importar(f);return}
+  if(kind==='importar'){for(const f of files)await importar(f);render();return}
   if(kind==='novo-etiqueta'){addEq('etiqueta',true);kind='etiqueta'}
   const SID=S.sid,UID=S.eqUid;let e=curEq();
   if(kind==='etiqueta'){S.busy['ia_'+e.uid]=false;S.msg['ia_'+e.uid]='';S.busy['lbl']=true;render();
@@ -1007,32 +1023,48 @@ async function gerarPDF(){const s=cur();S.busy.pdf=true;S.msg.pdf='';render();
      ['Instalador',dash([s.instalador?.nome,s.instalador?.localidade].filter(Boolean).join(' · '))],['Resp. instalador',dash([s.instalador?.responsavel,s.instalador?.contacto,s.instalador?.email].filter(Boolean).join(' · '))],
      ['Técnico responsável',dash(s.tecnico)],['Data da intervenção',dash(fmtD(s.data))]]);
   if(s.tipo==='AT'){sec('Descrição da avaria');para(s.avaria)}
-  let anyVerf=false;
+  let anyVerf=false;let fotoN=0;
+  const hasX=d=>!!(d&&((d.c&&d.c.trim())||(d.fotos||[]).length));
+  const extras=async(d,code)=>{if(!hasX(d))return;y-=2;
+    if(d.c&&d.c.trim()){doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(50);const ls=doc.splitTextToSize(PT('Comentário ('+code+'): '+d.c.trim()),W-2*M-4);ls.forEach(l=>{ensure(5);doc.text(l,M+2,y+3);y+=4.4});doc.setTextColor(20);y+=2}
+    if((d.fotos||[]).length){y+=1;await drawPhotos(d.fotos.map(ph=>({...ph,_cap:'Foto '+(++fotoN)+' · ponto '+code})))}
+    y+=2};
   for(const [i,e] of (s.equipamentos||[]).entries()){
+    doc.addPage();y=16;
     sec(`Equipamento ${i+1} · ${e.modelo||'Modelo por identificar'}`);
     kv([['Modelo',dash(e.modelo)],['Código',dash(e.codigo)],['Nº de série',dash(e.nserie)],['Data de produção',dash(e.dataProducao)],['Ref.ª / data da fatura',dash([e.refFatura,fmtD(e.dataFatura)].filter(Boolean).join(' · '))],...(e.ref?[['Referência interna',e.ref]]:[])]);
     const f=e.ficha||{};const fam=FAM[e.familia]||FAM.OUTRO;const oc=new Set(e.ocultos||[]);const ok=([c])=>!oc.has(keyOf(c));const hx=c=>{const d=f[keyOf(c)]||{};return !!(d.c&&d.c.trim()||(d.fotos||[]).length)};const nm=(c,n)=>n+(hx(c)?' (ver anexo)':'');
     for(const sc of secoes(s,e)){
       if(sc.kind==='caud'){
-        const cRows=(cod,lista)=>[...lista.map((n,j)=>[cod+'.'+(j+1),n]),...Array.from({length:N_OUTROS},(_,j)=>[cod+'.'+(lista.length+j+1),null])].filter(ok).map(([c,n])=>{const d=f[keyOf(c)]||{};return (d.p||d.r)?[c,nm(c,n||d.n||'Outros'),d.p||'',d.r||'',desvio(d.p,d.r)]:null}).filter(Boolean);
+        const cRows=(cod,lista)=>[...lista.map((n,j)=>[cod+'.'+(j+1),n]),...Array.from({length:N_OUTROS},(_,j)=>[cod+'.'+(lista.length+j+1),null])].filter(ok).map(([c,n])=>{const d=f[keyOf(c)]||{};return (d.p||d.r||hasX(d))?{c,d,row:[c,n||d.n||'Outros',d.p||'',d.r||'',desvio(d.p,d.r)]}:null}).filter(Boolean);
         const ce=cRows('7.5.1',EXT),ci=cRows('7.5.2',INS);
         if(ce.length||ci.length){ensure(20);doc.setFont('helvetica','bold');doc.setFontSize(9.5);doc.text('7.5 Caudal por ponto (m3/h)',M,y);y+=2;
-          const body=[...(ce.length?[[{content:'Extração',colSpan:5,styles:{fontStyle:'bold',fillColor:GR}}],...ce]:[]),...(ci.length?[[{content:'Insuflação',colSpan:5,styles:{fontStyle:'bold',fillColor:GR}}],...ci]:[])];
-          AT({head:[['Ref.','Compartimento','Proj.','Real','Desvio']],body,columnStyles:{0:{cellWidth:18},2:{cellWidth:20,halign:'right'},3:{cellWidth:20,halign:'right'},4:{cellWidth:18,halign:'right'}}})}
+          const all=[...(ce.length?[{grp:'Extração'},...ce]:[]),...(ci.length?[{grp:'Insuflação'},...ci]:[])];
+          let chunk=[],first=true;
+          const flush=()=>{if(!chunk.length)return;AT({head:first?[['Ref.','Compartimento','Proj.','Real','Desvio']]:undefined,showHead:first?'firstPage':'never',body:chunk,columnStyles:{0:{cellWidth:18},2:{cellWidth:20,halign:'right'},3:{cellWidth:20,halign:'right'},4:{cellWidth:18,halign:'right'}}});first=false;chunk=[]};
+          for(const r of all){if(r.grp){chunk.push([{content:r.grp,colSpan:5,styles:{fontStyle:'bold',fillColor:GR}}]);continue}
+            chunk.push(r.row);if(hasX(r.d)){flush();await extras(r.d,r.c)}}
+          flush()}
         continue}
-      const its=sc.items.filter(x=>!oc.has(x.k)).filter(x=>f[x.k]?.e||f[x.k]?.v);if(!its.length)continue;
+      const its=sc.items.filter(x=>!oc.has(x.k)).filter(x=>f[x.k]?.e||f[x.k]?.v||hasX(f[x.k]));if(!its.length)continue;
       const hasRef=sc.items.some(x=>x.ref!==undefined),hasVal=sc.items.some(x=>x.val),hasSt=sc.items.some(x=>x.states);
       const head=['Ref.','Item',...(hasRef?['Ref. manual']:[]),...(hasVal?['Especificação / valor']:[]),...(hasSt?['Estado']:[])];
-      const body=its.map(x=>{const d=f[x.k]||{};if(d.e==='verf')anyVerf=true;return [x.c,x.n+((d.c&&d.c.trim())||(d.fotos||[]).length?' (ver anexo)':''),...(hasRef?[x.ref||'']:[]),...(hasVal?[d.v||'']:[]),...(hasSt?[ST[d.e]||'']:[])]});
+      const rowOf=x=>{const d=f[x.k]||{};if(d.e==='verf')anyVerf=true;return [x.c,x.n,...(hasRef?[x.ref||'']:[]),...(hasVal?[d.v||'']:[]),...(hasSt?[ST[d.e]||'']:[])]};
       const cs={0:{cellWidth:16}};let ci=2;if(hasRef)cs[ci++]={cellWidth:22};if(hasVal)cs[ci++]={cellWidth:34};if(hasSt)cs[ci++]={cellWidth:16};
       const stCol=hasSt?head.length-1:-1;
       ensure(20);doc.setFont('helvetica','bold');doc.setFontSize(9.5);doc.text(PT(sc.code+' '+sc.title),M,y);y+=2;
-      AT({head:[head],body,columnStyles:cs,didParseCell:d=>{if(d.section==='body'&&d.column.index===stCol&&d.cell.raw==='Verf*')d.cell.styles.textColor=[168,95,0]}})}
+      let chunk=[],first=true;
+      const flush=()=>{if(!chunk.length)return;AT({head:first?[head]:undefined,showHead:first?'firstPage':'never',body:chunk,columnStyles:cs,didParseCell:d=>{if(d.section==='body'&&d.column.index===stCol&&d.cell.raw==='Verf*')d.cell.styles.textColor=[168,95,0]}});first=false;chunk=[]};
+      for(const x of its){chunk.push(rowOf(x));const d=f[x.k];if(hasX(d)){flush();await extras(d,x.c)}}
+      flush()}
     const ac=(e.acoes||[]);
     ensure(20);doc.setFont('helvetica','bold');doc.setFontSize(9.5);doc.text('Ações realizadas',M,y);y+=2;
     if(ac.length)AT({head:[['Ação','Peça (código · designação)','Qtd.','Nota']],body:ac.map(a=>[ACOES.find(x=>x[0]===a.tipo)?.[1]||a.tipo,[a.codigo,a.designacao].filter(Boolean).join(' · ')||'—',a.qtd||'',a.nota||'']),columnStyles:{0:{cellWidth:40},2:{cellWidth:12,halign:'center'}}});
     else{y+=3;para('Sem ações registadas.')}
+    const gerais=e.fotos||[];
+    if(gerais.length){ensure(16);doc.setFont('helvetica','bold');doc.setFontSize(9.5);doc.text('Outras fotografias',M,y);y+=4;await drawPhotos(gerais.map(ph=>({...ph,_cap:'Foto '+(++fotoN)+(ph.c?' — '+PT(ph.c):'')})))}
   }
+  doc.addPage();y=16;
   sec('Análise da intervenção');para(s.analise);
   sec('Recomendações');para(s.recomendacoes);
   if(s.observacoes){sec('Observações');para(s.observacoes)}
@@ -1042,20 +1074,6 @@ async function gerarPDF(){const s=cur();S.busy.pdf=true;S.msg.pdf='';render();
   [['tecnico','Técnico responsável',a.nomeTecnico||s.tecnico],['cliente','Cliente',a.nomeCliente||s.cliente?.nome]].forEach(([k,l,n],i)=>{const x=M+i*(sw+10);
     if(a[k])doc.addImage(a[k],'PNG',x,y,Math.min(sw,70),26);doc.setDrawColor(120);doc.line(x,y+28,x+sw,y+28);doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text(l,x,y+33);doc.setFont('helvetica','normal');doc.text(n||'',x,y+38)});
   y+=42;
-  // Anexo: comentários e fotografias de todos os pontos e equipamentos
-  let fotoN=0;const anexo=[];
-  for(const [i,e] of (s.equipamentos||[]).entries()){const f=e.ficha||{};const oc=new Set(e.ocultos||[]);const fam=FAM[e.familia]||FAM.OUTRO;
-    const keys=secoes(s,e).flatMap(sc=>sc.kind==='caud'?caudRows().map(([c])=>keyOf(c)):sc.items.map(x=>x.k));
-    const pts=keys.filter(k=>!oc.has(k)).map(k=>[k,f[k]||{}]).filter(([k,d])=>(d.c&&d.c.trim())||(d.fotos||[]).length);
-    const gerais=e.fotos||[];
-    if(pts.length||gerais.length)anexo.push({i,e,pts,gerais})}
-  if(anexo.length){doc.addPage();y=16;sec('Anexo · Fotografias e comentários');
-    for(const {i,e,pts,gerais} of anexo){ensure(14);doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text(`Equipamento ${i+1} · ${e.modelo||'Modelo por identificar'}${e.nserie?' · S/N '+e.nserie:''}`,M,y);y+=6;
-      for(const [k,d] of pts){ensure(12);doc.setFont('helvetica','bold');doc.setFontSize(9.2);const t=doc.splitTextToSize(PT(ptName(e,k)),W-2*M);t.forEach(l=>{ensure(5);doc.text(l,M,y);y+=4.4});
-        if(d.c&&d.c.trim()){doc.setFont('helvetica','normal');doc.setFontSize(9.2);doc.splitTextToSize(d.c.trim(),W-2*M).forEach(l=>{ensure(5);doc.text(l,M,y);y+=4.4})}
-        y+=1.5;if((d.fotos||[]).length)await drawPhotos(d.fotos.map(ph=>({...ph,_cap:'Foto '+(++fotoN)})));else y+=2}
-      if(gerais.length){ensure(12);doc.setFont('helvetica','bold');doc.setFontSize(9.2);doc.text('Outras fotografias',M,y);y+=4;await drawPhotos(gerais.map(ph=>({...ph,_cap:'Foto '+(++fotoN)+(ph.c?' — '+ph.c:'')})))}
-      y+=3}}
   const np=doc.getNumberOfPages();for(let p=1;p<=np;p++){doc.setPage(p);doc.setFontSize(8);doc.setTextColor(110);doc.text('Serviço de Assistência Técnica | S&P Portugal',M,291);doc.text(`${s.numero} · Página ${p}/${np}`,W-M,291,{align:'right'})}
   const nome=`${s.numero} - ${(s.cliente?.nome||'Cliente').replace(/[\\/:*?"<>|]/g,'')}.pdf`;
   const blob=doc.output('blob');
