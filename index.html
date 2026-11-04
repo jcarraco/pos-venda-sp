@@ -10,7 +10,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="pv-version" content="2026.11.03-local3">
+<meta name="pv-version" content="2026.11.03-local5">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 <script src="config.js"></script>
 </head><body>
@@ -217,6 +217,12 @@ body:has(#bar:not([hidden])) #syncbar{bottom:calc(80px + env(safe-area-inset-bot
 .login-logo{width:96px;height:96px;border-radius:12px}
 .login h1{font-size:34px}
 .login .pri{width:100%;min-height:52px;font-size:16px}
+.interna{background:var(--warn-soft);border-color:transparent}
+.interna .lock{color:var(--warn);display:inline-flex}
+.interna textarea{background:var(--surface)}
+.pill.ref{background:var(--ink);color:var(--surface);font-family:var(--f-mono);font-weight:500}
+.pill.ref::before{display:none}
+.pill.int{background:var(--warn-soft);color:var(--warn)}
 .outp{display:flex;flex-direction:column;gap:10px;border:1px solid var(--line-strong);border-radius:12px;padding:12px;background:var(--bg)}
 .pickf{display:flex;flex-direction:column;gap:10px;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px}
 .ptx{display:flex;flex-direction:column;gap:6px}
@@ -640,7 +646,7 @@ function render(){
     setHdr(`<button class="ghost" data-act="back-lista" aria-label="Voltar">‹ Serviços</button><div class="brand">${esc(s.numero)}<small>${s.tipo==='COM'?'Comissionamento':'Assistência técnica'} · <span id="savest">gravado</span></small></div>`);
     app.innerHTML=vServico(s);afterRender();
   }else if(v==='equip'){const s=cur(),e=curEq();if(!e){go('servico');return}
-    setHdr(`<button class="ghost" data-act="back-serv" aria-label="Voltar">‹ ${esc(s.numero)}</button><div class="brand">${esc(e.modelo||'Equipamento')}<small>${esc(e.nserie?'N.º série '+e.nserie:'Sem n.º de série')} · <span id="savest">gravado</span></small></div>`);
+    setHdr(`<button class="ghost" data-act="back-serv" aria-label="Voltar">‹ ${esc(s.numero)}</button><div class="brand">${esc(e.modelo||'Equipamento')}<small>${esc([e.ref&&e.ref.trim()?'Ref. '+e.ref.trim():'',e.nserie?'N.º série '+e.nserie:'Sem n.º de série'].filter(Boolean).join(' · '))} · <span id="savest">gravado</span></small></div>`);
     app.innerHTML=vEquip(s,e);afterRender();
   }else if(v==='cat-edit'){const c=curCat();if(!c){go('catalogo');return}
     setHdr(`<button class="ghost" data-act="tab-main" data-v="catalogo">‹ Equipamentos</button><div class="brand">${esc(c.modelo||'Novo equipamento')}<small><span id="savest">gravado</span></small></div>`);
@@ -665,7 +671,7 @@ function vLista(){
   if(S.filtro==='abertos')arr=arr.filter(s=>s.estado!=='concluido');
   if(S.filtro==='concluidos')arr=arr.filter(s=>s.estado==='concluido');
   const q=S.q.trim().toLowerCase();
-  if(q)arr=arr.filter(s=>[s.numero,s.cliente?.nome,s.local?.obra,s.local?.localidade,s.instalador?.nome,...(s.equipamentos||[]).flatMap(e=>[e.modelo,e.nserie])].join(' ').toLowerCase().includes(q));
+  if(q)arr=arr.filter(s=>[s.numero,s.cliente?.nome,s.local?.obra,s.local?.localidade,s.instalador?.nome,s.notaInterna,...(s.equipamentos||[]).flatMap(e=>[e.modelo,e.nserie,e.ref])].join(' ').toLowerCase().includes(q));
   const f=(k,t)=>`<button data-act="filtro" data-v="${k}" class="${S.filtro===k?'on':''}">${t}</button>`;
   return `<div class="search">${IC.search}<input id="q" placeholder="Procurar cliente, obra, n.º ou modelo" value="${esc(S.q)}" data-act-input="q" aria-label="Procurar"></div>
   <div class="tabs under">${f('abertos','Em curso')}${f('concluidos','Concluídos')}${f('todos','Todos')}</div>
@@ -680,7 +686,7 @@ function cardSvc(s){const eq=s.equipamentos||[];const com=s.tipo==='COM';
     top:`<b>${esc(s.numero)}</b>${s.estado==='concluido'?'<span class="pill done">Concluído</span>':'<span class="pill open">Em curso</span>'}`,
     title:esc(s.cliente?.nome||'Cliente por preencher'),
     sub:esc([s.local?.obra,s.local?.localidade].filter(Boolean).join(' · ')||'Obra por preencher'),
-    meta:`<span>${com?'Comissionamento':'Assistência técnica'}</span><span>${fmtD(s.data)}</span><span>${eq.length?esc(eq.map(e=>e.modelo||'?').join(', ')):'Sem equipamentos'}</span>`})}
+    meta:`<span>${com?'Comissionamento':'Assistência técnica'}</span><span>${fmtD(s.data)}</span><span>${eq.length?esc(eq.map(e=>(e.modelo||'?')+(e.ref&&e.ref.trim()?' ('+e.ref.trim()+')':'')).join(', ')):'Sem equipamentos'}</span>${(s.notaInterna&&s.notaInterna.trim())||eq.some(e=>e.notaInterna&&e.notaInterna.trim())?'<span class="pill int">Nota interna</span>':''}`})}
 
 function novoServico(tipo,ficha){
   const ano=new Date().getFullYear();const pref=(tipo==='COM'?'COM':'AT')+'-'+ano+'-';
@@ -717,9 +723,10 @@ function vServico(s){
     <div class="grid2">${fld('Responsável','s:instalador.responsavel')}${fld('Contacto','s:instalador.contacto',{type:'tel',im:'tel'})}</div>
     ${fld('E-mail','s:instalador.email',{type:'email',im:'email'})}</div>
    ${s.tipo==='AT'?`<div class="panel sect"><div class="sect-h"><h3>Descrição da avaria</h3></div>${fld('Avaria reportada pelo cliente','s:avaria',{area:1})}</div>`:''}
+   <div class="panel sect interna"><div class="sect-h"><span class="lock"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span><h3>Notas internas do serviço</h3></div><div class="muted" style="font-size:13px">Só para a S&amp;P. Não aparecem no relatório do cliente.</div>${fld('Notas internas','s:notaInterna',{area:1,ph:'Ex.: cliente difícil de contactar; voltar a verificar o by-pass na próxima visita'})}</div>
    <div class="panel sect"><div class="sect-h"><h3>Zona de perigo</h3></div>${S.confirm==='del-svc'?`<div class="confirm"><span>Apagar ${esc(s.numero)} e todos os dados?</span><button class="danger sm" data-act="del-svc-ok">Apagar</button><button class="sm" data-act="cancel">Cancelar</button></div>`:`<div><button class="danger sm" data-act="ask" data-v="del-svc">Apagar serviço</button></div>`}</div>`;
   if(S.svTab==='equip'){const eq=s.equipamentos||[];
-    body=`${eq.length?`<div class="list">${eq.map((e,i)=>{const pr=progFicha(s,e);return card({act:'abrir-eq',v:e.uid,ic:'eq',top:`<b>Equip. ${i+1}</b><span class="pill">${esc(FAM_NOME[e.familia]||'Sem família')}</span>`,title:esc(e.modelo||'Modelo por identificar'),sub:`<span class="mono">${esc([e.codigo,e.nserie&&'S/N '+e.nserie].filter(Boolean).join(' · ')||'—')}</span>`,meta:`<span>Ficha ${pr}%</span><span>${(e.fotos||[]).length} fotos</span><span>${(e.acoes||[]).length} ações</span>`,extra:`<span class="prog"><i style="width:${pr}%"></i></span>`})}).join('')}</div>`:`<div class="empty"><b>Sem equipamentos neste serviço</b><span>Adicione o primeiro e comece pela fotografia da etiqueta.</span></div>`}
+    body=`${eq.length?`<div class="list">${eq.map((e,i)=>{const pr=progFicha(s,e);return card({act:'abrir-eq',v:e.uid,ic:'eq',top:`<b>Equip. ${i+1}</b>${e.ref&&e.ref.trim()?`<span class="pill ref">Ref. ${esc(e.ref.trim())}</span>`:''}${e.familia&&fichaDe(s)!=='nashira'?`<span class="pill">${esc(FAM_NOME[e.familia])}</span>`:''}`,title:esc(e.modelo||'Modelo por identificar'),sub:`<span class="mono">${esc([e.codigo,e.nserie&&'S/N '+e.nserie].filter(Boolean).join(' · ')||'—')}</span>`,meta:`<span>Ficha ${pr}%</span><span>${(e.fotos||[]).length} fotos</span><span>${(e.acoes||[]).length} ações</span>`,extra:`<span class="prog"><i style="width:${pr}%"></i></span>`})}).join('')}</div>`:`<div class="empty"><b>Sem equipamentos neste serviço</b><span>Adicione o primeiro e comece pela fotografia da etiqueta.</span></div>`}
     <div class="panel sect"><div class="sect-h"><h3>Adicionar equipamento</h3></div>
      <div class="actions"><span class="filebtn" style="display:flex"><button class="tile" type="button" style="width:100%"><span class="ic at">${IC.cam}</span><span><b>Pela etiqueta</b><small>Fotografar e ler os dados</small></span></button><input type="file" accept="image/*" capture="environment" data-file="novo-etiqueta" aria-label="Fotografar etiqueta do novo equipamento"></span>
      <button class="tile" data-act="add-eq-manual"><span class="ic eq">${IC.eq}</span><span><b>Manualmente</b><small>Escolher do catálogo ou escrever os dados</small></span></button></div></div>`}
@@ -767,7 +774,8 @@ function vIdent(s,e){
    <div class="grid2">${fld('Data de produção','e:dataProducao',{ph:'Como consta na etiqueta'})}${fld('Referência interna','e:ref',{ph:'Opcional'})}</div>
    <div class="grid2">${fld('Ref.ª da fatura','e:refFatura')}${fld('Data da fatura','e:dataFatura',{type:'date'})}</div>
   </div>`;
-  return (manual?pDados+pEtq:pEtq+pDados)+`<div class="panel sect"><div class="sect-h"><h3>Remover</h3></div>${S.confirm==='del-eq'?`<div class="confirm"><span>Remover este equipamento do serviço?</span><button class="danger sm" data-act="del-eq-ok">Remover</button><button class="sm" data-act="cancel">Cancelar</button></div>`:`<div><button class="danger sm" data-act="ask" data-v="del-eq">Remover equipamento</button></div>`}</div>`;
+  const pInt=`<div class="panel sect interna"><div class="sect-h"><span class="lock"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span><h3>Notas internas do equipamento</h3></div><div class="muted" style="font-size:13px">Só para a S&amp;P. Não aparecem no relatório do cliente.</div>${fld('Notas internas','e:notaInterna',{area:1,ph:'Ex.: peça encomendada; instalação fora das recomendações, falar com o instalador'})}</div>`;
+  return (manual?pDados+pEtq:pEtq+pDados)+pInt+`<div class="panel sect"><div class="sect-h"><h3>Remover</h3></div>${S.confirm==='del-eq'?`<div class="confirm"><span>Remover este equipamento do serviço?</span><button class="danger sm" data-act="del-eq-ok">Remover</button><button class="sm" data-act="cancel">Cancelar</button></div>`:`<div><button class="danger sm" data-act="ask" data-v="del-eq">Remover equipamento</button></div>`}</div>`;
 }
 function ptName(e,k){const f=e.ficha||{};
   for(const sc of secoes(cur(),e))for(const x of (sc.items||[]))if(x.k===k)return x.c+' · '+x.n;
