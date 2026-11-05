@@ -10,7 +10,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="pv-version" content="2026.11.03-local5">
+<meta name="pv-version" content="2026.11.05-local6">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 <script src="config.js"></script>
 </head><body>
@@ -542,15 +542,17 @@ const STANDALONE=()=>!!window.PV_MODE;
 function setOut(kind,blob,nome,info){S.out={kind,nome,info,file:new File([blob],nome,{type:blob.type||'application/octet-stream'})}}
 function outPanel(kind){const o=S.out;if(!o||o.kind!==kind)return '';let canShare=false;try{canShare=STANDALONE()&&!!(navigator.canShare&&navigator.canShare({files:[o.file]}))}catch(e){}
   return `<div class="outp"><div style="min-width:0"><b style="word-break:break-word">${esc(o.nome)}</b>${o.info?`<div class="muted" style="font-size:13px">${esc(o.info)}</div>`:''}</div><div class="row">${canShare?`<button class="pri" data-act="out-share">Partilhar</button>`:''}<button data-act="out-down" ${canShare?'':'class="pri"'}>Descarregar</button><button class="ghost sm" data-act="out-close">Fechar</button></div></div>`}
+const REL_SEC=[['analise','Análise da intervenção'],['recomendacoes','Recomendações'],['observacoes','Observações'],['garantia','Garantia'],['assinaturas','Assinaturas']];
+function fotosDe(sv){const out=[];for(const e of sv.equipamentos||[]){out.push(...(e.fotos||[]),...Object.values(e.ficha||{}).flatMap(d=>(d&&d.fotos)||[]));if(e.etiqueta)out.push(e.etiqueta)}
+  Object.values(sv.fotosRel||{}).forEach(l=>out.push(...(l||[])));return out.filter(Boolean)}
+const relOculto=(s,k)=>(s.ocultosRel||[]).includes(k);
 function nomeFich(t){return String(t||'').replace(/[\\/:*?"<>|]/g,'').trim()}
 async function exportSvc(s){const fotos={};
-  for(const e of s.equipamentos||[]){const all=[...(e.fotos||[]),...Object.values(e.ficha||{}).flatMap(d=>(d&&d.fotos)||[]),...(e.etiqueta?[e.etiqueta]:[])];
-    for(const f of all){const d=await fotoData(f);if(d)fotos[f.id]=d}}
+  for(const f of fotosDe(s)){const d=await fotoData(f);if(d)fotos[f.id]=d}
   const data={tipo:'pos-venda-sp-servico',versao:1,exportadoEm:new Date().toISOString(),servico:clean(s),fotos};
   setOut('svc',new Blob([JSON.stringify(data)],{type:'application/json'}),`${nomeFich(s.numero)} - ${nomeFich(s.cliente?.nome||'Cliente')}.posvenda.json`,'Ficheiro com o serviço completo, incluindo fotografias e assinaturas. Abre-se noutro telemóvel em Serviços › Importar ficheiro.')}
 async function exportTudo(){const fotos={};
-  for(const sv of S.servicos)for(const e of sv.equipamentos||[]){const all=[...(e.fotos||[]),...Object.values(e.ficha||{}).flatMap(d=>(d&&d.fotos)||[]),...(e.etiqueta?[e.etiqueta]:[])];
-    for(const f of all){if(fotos[f.id])continue;const d=await fotoData(f);if(d)fotos[f.id]=d}}
+  for(const sv of S.servicos)for(const f of fotosDe(sv)){if(fotos[f.id])continue;const d=await fotoData(f);if(d)fotos[f.id]=d}
   const data={tipo:'pos-venda-sp-tudo',versao:1,exportadoEm:new Date().toISOString(),servicos:clean(S.servicos),catalogo:clean(S.catalogo),fotos};
   const stamp=new Date().toISOString().slice(0,16).replace('T',' ').replace(':','h');
   setOut('tudo',new Blob([JSON.stringify(data)],{type:'application/json'}),`Pos-Venda S&P ${stamp}.posvenda.json`,`${S.servicos.length} serviço(s) e ${S.catalogo.length} equipamento(s) do catálogo, com fotografias e assinaturas. Abra este ficheiro no outro dispositivo em Serviços › Importar ficheiro.`)}
@@ -560,8 +562,7 @@ async function importar(file){let j;try{j=JSON.parse(await file.text())}catch(e)
   if(j.tipo==='pos-venda-sp-catalogo'){let n=0;for(const c of j.itens||[]){if(!c.id)continue;const {id,...d}=c;await S.db.doc('catalogo/'+id).set(d);n++}toast(n+' equipamento(s) do catálogo importado(s).');setTimeout(()=>toast(''),4000);return}
   const fix=f=>{if(f&&j.fotos&&j.fotos[f.id]){f.src='db'}return f};
   const upSvc=async sv=>{const ex=S.servicos.find(x=>x.id===sv.id);if(ex&&(ex.atualizadoEm||'')>(sv.atualizadoEm||''))return false;
-    for(const e of sv.equipamentos||[]){(e.fotos||[]).forEach(fix);Object.values(e.ficha||{}).forEach(d=>(d&&d.fotos||[]).forEach(fix));if(e.etiqueta)fix(e.etiqueta)}
-    const ids=new Set();for(const e of sv.equipamentos||[]){[...(e.fotos||[]),...Object.values(e.ficha||{}).flatMap(d=>(d&&d.fotos)||[]),...(e.etiqueta?[e.etiqueta]:[])].forEach(f=>f&&ids.add(f.id))}
+    const refs=fotosDe(sv);refs.forEach(fix);const ids=new Set(refs.map(f=>f.id));
     for(const id of ids){const d=j.fotos&&j.fotos[id];if(d){await S.db.doc('fotos/'+id).set({d,sid:sv.id});S.fotoCache[id]=d}}
     const {id,...data}=sv;await S.db.doc('servicos/'+id).set(data);return true};
   if(j.tipo==='pos-venda-sp-tudo'){let n=0,k=0,c=0;for(const sv of j.servicos||[]){if(!sv.id)continue;if(await upSvc(sv))n++;else k++}
@@ -825,17 +826,24 @@ function vAcoes(e){const cat=catOf(e);const acs=e.acoes||[];const nd=S.nova||{};
   <div class="panel">${acs.length?acs.map((a,i)=>`<div class="act"><span class="dot"></span><div><div class="m">${esc(ACOES.find(x=>x[0]===a.tipo)?.[1]||a.tipo)}</div>${a.designacao?`<div class="muted" style="font-size:14px">${a.qtd?esc(a.qtd)+' × ':''}<span class="mono">${esc(a.codigo||'')}</span> ${esc(a.designacao)}</div>`:''}${a.nota?`<div class="muted" style="font-size:13px">${esc(a.nota)}</div>`:''}</div><div><button class="ghost sm" data-act="del-acao" data-v="${i}">Remover</button></div></div>`).join(''):`<div class="muted">Ainda sem ações registadas neste equipamento.</div>`}</div>`}
 
 /* ================== RELATÓRIO ================== */
+function relFotos(s,k){const fs=(s.fotosRel||{})[k]||[];if(fs.length)loadDbFotos(fs);const up=S.busy['rf_'+k];
+  return `<div class="ptb" style="margin-left:-8px"><span class="filebtn"><button type="button" class="sm ghost">${up?'<span class="spin"></span> A carregar':'+ Foto'}${fs.length?' ('+fs.length+')':''}</button><input type="file" accept="image/*" capture="environment" multiple data-file="relfoto" data-k="${k}" aria-label="Fotografia"></span></div>
+   ${fs.length?`<div class="pthumbs">${fs.map(ph=>`<div class="pth"><img data-fid="${ph.id}" src="${esc(fotoSrc(ph))}" alt="Fotografia">${S.confirm==='del-rf-'+ph.id?`<button class="danger sm" data-act="rf-del" data-k="${k}" data-v="${ph.id}">Apagar</button>`:`<button class="sm x" data-act="ask" data-v="del-rf-${ph.id}" aria-label="Apagar fotografia">✕</button>`}</div>`).join('')}</div>`:''}`}
+function relSec(s,k,titulo,corpo){if(relOculto(s,k))return '';
+  return `<div class="panel sect"><div class="sect-h"><h3>${titulo}</h3><button type="button" class="sm ghost" style="margin-left:auto;color:var(--muted)" data-act="rel-ocultar" data-v="${k}">Ocultar</button></div>${corpo}</div>`}
 function vRelatorio(s){const a=s.assin||{};const fin=s.estado==='concluido';const g=S.busy.pdf;
-  return `<div class="panel sect"><div class="sect-h"><h3>Análise da intervenção</h3></div>${fld('Análise e trabalhos realizados','s:analise',{area:1})}</div>
-  <div class="panel sect"><div class="sect-h"><h3>Recomendações</h3></div>${fld('Recomendações ao cliente','s:recomendacoes',{area:1})}</div>
-  <div class="panel sect"><div class="sect-h"><h3>Garantia e observações</h3></div><div class="row"><span class="lbl">Garantia</span>${seg('s:garantia',['sim','nao'])}</div>${fld('Observações','s:observacoes',{area:1})}</div>
-  <div class="panel sect"><div class="sect-h"><h3>Assinaturas</h3></div>
-   <div class="grid2">
+  const oc=(s.ocultosRel||[]);
+  return `${relSec(s,'analise','Análise da intervenção',fld('Análise e trabalhos realizados','s:analise',{area:1})+relFotos(s,'analise'))}
+  ${relSec(s,'recomendacoes','Recomendações',fld('Recomendações ao cliente','s:recomendacoes',{area:1})+relFotos(s,'recomendacoes'))}
+  ${relSec(s,'observacoes','Observações',fld('Observações','s:observacoes',{area:1})+relFotos(s,'observacoes'))}
+  ${relSec(s,'garantia','Garantia',`<div class="row"><span class="lbl">Garantia</span>${seg('s:garantia',['sim','nao'])}</div>`)}
+  ${relSec(s,'assinaturas','Assinaturas',`<div class="grid2">
     <div class="sig">${fld('Técnico responsável','s:assin.nomeTecnico',{ph:s.tecnico||'Nome'})}<canvas data-sig="tecnico" aria-label="Assinatura do técnico"></canvas><div><button class="ghost sm" data-act="sig-clear" data-v="tecnico">Limpar</button></div></div>
     <div class="sig">${fld('Cliente','s:assin.nomeCliente',{ph:s.cliente?.nome||'Nome'})}<canvas data-sig="cliente" aria-label="Assinatura do cliente"></canvas><div><button class="ghost sm" data-act="sig-clear" data-v="cliente">Limpar</button></div></div>
-   </div></div>
+   </div>`)}
+  ${oc.length?`<div class="hidbar"><span class="muted">Fora do relatório:</span>${oc.map(k=>`<button class="sm" style="font-family:var(--f-body)" data-act="rel-repor" data-v="${k}" title="Mostrar de novo">${esc((REL_SEC.find(x=>x[0]===k)||[k,k])[1])} ↺</button>`).join('')}</div>`:''}
   <div class="panel sect"><div class="sect-h"><h3>Emitir</h3></div>
-   <div class="muted" style="font-size:14px">${(s.equipamentos||[]).length} equipamento(s), ${(s.equipamentos||[]).reduce((n,e)=>n+(e.acoes||[]).length,0)} ação(ões), ${(s.equipamentos||[]).reduce((n,e)=>n+(e.fotos||[]).length,0)} fotografia(s). ${a.cliente?'Assinado pelo cliente.':'Falta a assinatura do cliente.'}</div>
+   <div class="muted" style="font-size:14px">${(s.equipamentos||[]).length} equipamento(s), ${(s.equipamentos||[]).reduce((n,e)=>n+(e.acoes||[]).length,0)} ação(ões), ${(s.equipamentos||[]).reduce((n,e)=>n+(e.fotos||[]).length,0)} fotografia(s). ${relOculto(s,'assinaturas')?'Assinaturas ocultas no relatório.':a.cliente?'Assinado pelo cliente.':'Falta a assinatura do cliente.'}</div>
    <div class="row"><button class="pri" data-act="pdf" ${g?'disabled':''}>${g?'<span class="spin"></span> A gerar PDF…':'Gerar relatório PDF'}</button>
    ${fin?`<button data-act="reabrir">Reabrir serviço</button>`:`<button data-act="concluir">Marcar como concluído</button>`}</div>
    ${S.msg.pdf?`<div class="${S.msg.pdf.startsWith('!')?'err-msg':'ok-msg'}" style="font-size:14px">${esc(S.msg.pdf.replace(/^!/,''))}</div>`:''}
@@ -897,6 +905,9 @@ document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-ac
   case 'ia-ler':lerEtiqueta();break;
   case 'pt-nota':{const e=curEq();const key=e.uid+v;S.open[key]=!S.open[key];if(!S.open[key]){const d=e.ficha?.[v];if(d&&!d.c){delete d.c;saveSvc()}}render();if(S.open[key]){const t=document.getElementById('f_'+e.uid+'_'+v+'_c');if(t)t.focus()}break}
   case 'pt-row':{const e=curEq();const key=e.uid+v+'_row';S.open[key]=!S.open[key];render();break}
+  case 'rel-ocultar':{s.ocultosRel=[...new Set([...(s.ocultosRel||[]),v])];saveSvc(true);render();break}
+  case 'rel-repor':{s.ocultosRel=(s.ocultosRel||[]).filter(x=>x!==v);saveSvc(true);render();break}
+  case 'rf-del':{const k=b.dataset.k;const l=(s.fotosRel||{})[k]||[];const ph=l.find(x=>x.id===v);s.fotosRel[k]=l.filter(x=>x.id!==v);saveSvc(true);S.confirm=null;render();try{if(ph?.src==='db')await S.db.doc('fotos/'+ph.id).delete()}catch(er){}break}
   case 'pt-ocultar':{const e=curEq();e.ocultos=[...new Set([...(e.ocultos||[]),v])];saveSvc(true);render();break}
   case 'pt-repor':{const e=curEq();e.ocultos=(e.ocultos||[]).filter(x=>x!==v);saveSvc(true);render();break}
   case 'pt-foto-del':{const e=curEq();const k=b.dataset.k;const d=e.ficha?.[k];if(d){const ph=(d.fotos||[]).find(x=>x.id===v);d.fotos=(d.fotos||[]).filter(x=>x.id!==v);saveSvc(true);S.confirm=null;render();try{if(ph?.src==='asset'&&S.assets)await S.assets.delete(ph.id);else if(ph?.src==='db')await S.db.doc('fotos/'+ph.id).delete()}catch(er){}}break}
@@ -942,6 +953,9 @@ document.addEventListener('change',async ev=>{const el=ev.target;let kind=el.dat
     try{const blob=await compress(files[0],1800,.85);const f=await guardarFoto(blob);e=findEq(SID,UID)||e;e._labelBlob=blob;e.etiqueta=f;saveSvc(true,SID);S.msg['ia_'+e.uid]='';
       if(S.sample||window.__ocr){render();await lerEtiqueta()}}catch(er){S.msg['ia_'+e.uid]='!Não foi possível guardar a fotografia: '+(er.message||er.code)}
     S.busy['lbl']=false;render();return}
+  if(kind==='relfoto'){const k=el.dataset.k;const bk='rf_'+k;S.busy[bk]=true;render();
+    for(const file of files){try{const blob=await compress(file,1600,.8);const f=await guardarFoto(blob);const sv=S.servicos.find(x=>x.id===SID);if(!sv)break;sv.fotosRel=sv.fotosRel||{};(sv.fotosRel[k]=sv.fotosRel[k]||[]).push(f);saveSvc(true,SID)}catch(er){toast('Uma fotografia não foi guardada: '+(er.message||er.code))}}
+    S.busy[bk]=false;render();return}
   if(kind==='ponto'){const k=el.dataset.k;const bk='pt_'+UID+k;S.busy[bk]=true;render();
     for(const file of files){try{const blob=await compress(file,1600,.8);const f=await guardarFoto(blob);e=findEq(SID,UID)||e;e.ficha=e.ficha||{};e.ficha[k]=e.ficha[k]||{};(e.ficha[k].fotos=e.ficha[k].fotos||[]).push(f);saveSvc(true,SID)}catch(er){toast('Uma fotografia não foi guardada: '+(er.message||er.code))}}
     S.busy[bk]=false;render();return}
@@ -1072,16 +1086,20 @@ async function gerarPDF(){const s=cur();S.busy.pdf=true;S.msg.pdf='';render();
     const gerais=e.fotos||[];
     if(gerais.length){ensure(16);doc.setFont('helvetica','bold');doc.setFontSize(9.5);doc.text('Outras fotografias',M,y);y+=4;await drawPhotos(gerais.map(ph=>({...ph,_cap:'Foto '+(++fotoN)+(ph.c?' — '+PT(ph.c):'')})))}
   }
-  doc.addPage();y=16;
-  sec('Análise da intervenção');para(s.analise);
-  sec('Recomendações');para(s.recomendacoes);
-  if(s.observacoes){sec('Observações');para(s.observacoes)}
-  ensure(10);doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('Garantia:',M,y);doc.setFont('helvetica','normal');doc.text(s.garantia==='sim'?'Sim':s.garantia==='nao'?'Não':'—',M+20,y);y+=6;
+  const vis=k=>!relOculto(s,k);const fr=k=>((s.fotosRel||{})[k]||[]);
+  const algo=vis('analise')||vis('recomendacoes')||(vis('observacoes')&&((s.observacoes||'').trim()||fr('observacoes').length))||vis('garantia')||vis('assinaturas')||anyVerf;
+  if(algo){doc.addPage();y=16}
+  const secTxt=async(k,t,txt,sempre)=>{if(!vis(k))return;if(!sempre&&!(txt||'').trim()&&!fr(k).length)return;sec(t);para(txt);if(fr(k).length){await drawPhotos(fr(k).map(ph=>({...ph,_cap:'Foto '+(++fotoN)})))}};
+  await secTxt('analise','Análise da intervenção',s.analise,true);
+  await secTxt('recomendacoes','Recomendações',s.recomendacoes,true);
+  await secTxt('observacoes','Observações',s.observacoes,false);
+  if(vis('garantia')){ensure(10);doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('Garantia:',M,y);doc.setFont('helvetica','normal');doc.text(s.garantia==='sim'?'Sim':s.garantia==='nao'?'Não':'—',M+20,y);y+=6}
   if(anyVerf){doc.setFontSize(8.5);doc.setTextColor(90);doc.text('Verf* — necessária verificação e/ou ação corretiva',M,y);doc.setTextColor(20);y+=6}
+  if(vis('assinaturas')){
   ensure(48);const a=s.assin||{};const sw=(W-2*M-10)/2;
   [['tecnico','Técnico responsável',a.nomeTecnico||s.tecnico],['cliente','Cliente',a.nomeCliente||s.cliente?.nome]].forEach(([k,l,n],i)=>{const x=M+i*(sw+10);
     if(a[k])doc.addImage(a[k],'PNG',x,y,Math.min(sw,70),26);doc.setDrawColor(120);doc.line(x,y+28,x+sw,y+28);doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text(l,x,y+33);doc.setFont('helvetica','normal');doc.text(n||'',x,y+38)});
-  y+=42;
+  y+=42}
   const np=doc.getNumberOfPages();for(let p=1;p<=np;p++){doc.setPage(p);doc.setFontSize(8);doc.setTextColor(110);doc.text('Serviço de Assistência Técnica | S&P Portugal',M,291);doc.text(`${s.numero} · Página ${p}/${np}`,W-M,291,{align:'right'})}
   const nome=`${s.numero} - ${(s.cliente?.nome||'Cliente').replace(/[\\/:*?"<>|]/g,'')}.pdf`;
   const blob=doc.output('blob');
